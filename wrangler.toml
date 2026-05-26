@@ -1,8 +1,11 @@
-name = "awwbot"
+name = "hermes"
 main = "./src/server.js"
-compatibility_date="2023-05-18"
+compatibility_date = "2026-05-26"
+
+[vars]
+DISCORD_APPLICATION_ID = "150877213610855643"
 
 # [secrets]
 # DISCORD_TOKEN
 # DISCORD_PUBLIC_KEY
-# DISCORD_APPLICATION_ID
+# ANTHROPIC_API_KEY
