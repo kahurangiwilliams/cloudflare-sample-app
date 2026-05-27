@@ -9,6 +9,7 @@ import {
   InteractionType,
 } from 'discord-interactions';
 import { SHAQ_COMMAND } from './commands.js';
+import { getTodaysEvents } from './calendar.js';
 
 class JsonResponse extends Response {
   constructor(body, init) {
@@ -123,6 +124,109 @@ Keep responses concise and actionable unless asked to elaborate.`,
 
 router.all('*', () => new Response('Not Found.', { status: 404 }));
 
+/**
+ * Morning brief function
+ * Called by the cron trigger every day at 8:30am NZT
+ */
+async function sendMorningBrief(env) {
+  try {
+    console.log('Fetching calendar events for morning brief...');
+
+    // Get today's events from Google Calendar
+    const events = await getTodaysEvents(env);
+
+    // Format events into a readable list for Claude
+    let eventsText = '';
+    if (events.length === 0) {
+      eventsText = 'No events scheduled for today.';
+    } else {
+      eventsText = events.map(event => {
+        const start = event.start?.dateTime || event.start?.date;
+        const end = event.end?.dateTime || event.end?.date;
+        
+        // Format time nicely
+        let timeStr = '';
+        if (event.start?.dateTime) {
+          const startTime = new Date(start).toLocaleTimeString('en-NZ', {
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'Pacific/Auckland',
+          });
+          const endTime = new Date(end).toLocaleTimeString('en-NZ', {
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'Pacific/Auckland',
+          });
+          timeStr = `${startTime} - ${endTime}`;
+        } else {
+          timeStr = 'All day';
+        }
+
+        return `- ${timeStr}: ${event.summary || 'Untitled event'}`;
+      }).join('\n');
+    }
+
+    console.log('Events fetched:', eventsText);
+
+    // Send events to Claude to format into a morning brief
+    const anthropicResponse = await fetch(
+      'https://api.anthropic.com/v1/messages',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-5',
+          max_tokens: 1024,
+          system: `You are Shaq, a personal AI workflow assistant for Xavier.
+Xavier is a sales closer working in a property mentorship community in New Zealand.
+You deliver sharp, energetic morning briefs. Keep it punchy and motivating.
+Format the brief clearly with a greeting, the day's schedule, and one short line of focus for the day.
+Use Discord markdown formatting — **bold** for times and event names.`,
+          messages: [
+            {
+              role: 'user',
+              content: `Here are Xavier's calendar events for today:\n\n${eventsText}\n\nWrite his morning brief.`,
+            },
+          ],
+        }),
+      },
+    );
+
+    const claudeData = await anthropicResponse.json();
+
+    if (!claudeData.content || !claudeData.content[0]) {
+      throw new Error('No content from Claude: ' + JSON.stringify(claudeData));
+    }
+
+    const brief = claudeData.content[0].text;
+    console.log('Morning brief generated:', brief);
+
+    // Post the brief to Discord
+    const discordResponse = await fetch(
+      `https://discord.com/api/v10/channels/${env.DISCORD_CHANNEL_ID}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bot ${env.DISCORD_TOKEN}`,
+        },
+        body: JSON.stringify({
+          content: brief,
+        }),
+      },
+    );
+
+    console.log('Discord post status:', discordResponse.status);
+
+  } catch (err) {
+    console.error('Morning brief error:', err.message);
+  }
+}
+
 async function verifyDiscordRequest(request, env) {
   const signature = request.headers.get('x-signature-ed25519');
   const timestamp = request.headers.get('x-signature-timestamp');
@@ -178,6 +282,10 @@ const server = {
   fetch: async (request, env, ctx) => {
     env.ctx = ctx;
     return router.fetch(request, env, ctx);
+  },
+  // This is the cron handler - Cloudflare calls this on schedule
+  scheduled: async (event, env, ctx) => {
+    ctx.waitUntil(sendMorningBrief(env));
   },
 };
 

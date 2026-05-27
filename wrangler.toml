@@ -5,7 +5,16 @@ compatibility_date = "2026-05-26"
 [vars]
 DISCORD_APPLICATION_ID = "150877213610855643"
 
+# Cron Triggers - runs the morning brief automatically
+# "0 19 * * *" = 7am NZT (UTC+12) = 19:00 UTC previous day
+[triggers]
+crons = ["30 20 * * *"]
+
 # [secrets]
 # DISCORD_TOKEN
 # DISCORD_PUBLIC_KEY
 # ANTHROPIC_API_KEY
+# GOOGLE_CLIENT_ID
+# GOOGLE_CLIENT_SECRET
+# GOOGLE_REFRESH_TOKEN
+# DISCORD_CHANNEL_ID
